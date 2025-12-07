@@ -6,14 +6,30 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import * as githubData from '../github';
 import type { GitHubIssue, GitHubMetadata } from '../github';
 
 // モック設定
-vi.mock('fs');
-vi.mock('path');
+vi.mock('node:fs', () => {
+  const readFileSync = vi.fn();
+  const existsSync = vi.fn();
+  const mockFs = { readFileSync, existsSync };
+  return {
+    ...mockFs,
+    default: mockFs,
+  };
+});
+
+vi.mock('node:path', () => {
+  const join = vi.fn();
+  const mockPath = { join };
+  return {
+    ...mockPath,
+    default: mockPath,
+  };
+});
 
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockExistsSync = vi.mocked(existsSync);
@@ -173,9 +189,16 @@ const mockMetadata: GitHubMetadata = {
     name: 'testrepo',
   },
   statistics: {
-    total: 3,
-    open: 2,
-    closed: 1,
+    issues: {
+      total: 3,
+      open: 2,
+      closed: 1,
+    },
+    pullRequests: {
+      total: 0,
+      open: 0,
+      closed: 0,
+    },
     labels: 3,
   },
   labelCounts: {
@@ -184,6 +207,7 @@ const mockMetadata: GitHubMetadata = {
     'priority: high': 1,
   },
   lastIssue: mockIssuesData[0]!,
+  lastPullRequest: null,
 };
 
 const mockFallbackIssues: GitHubIssue[] = [
@@ -287,7 +311,7 @@ describe('GitHub Data Processing Layer', () => {
         const result = githubData.getStaticMetadata();
 
         expect(result.repository.owner).toBe('testowner');
-        expect(result.statistics.total).toBe(3);
+        expect(result.statistics.issues.total).toBe(3);
         expect(result.labelCounts['bug']).toBe(2);
         expect(mockJoin).toHaveBeenCalledWith('/test', 'src/data/github', 'metadata.json');
       });

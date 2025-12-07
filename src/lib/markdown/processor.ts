@@ -5,9 +5,10 @@
 import { remark } from 'remark';
 import remarkRehype from 'remark-rehype';
 import rehypeStringify from 'rehype-stringify';
+import rehypeSlug from 'rehype-slug';
 import matter from 'gray-matter';
-import fs from 'fs/promises';
-import path from 'path';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { DocMetadata, DocSection } from '../types/docs.js';
 
 /**
@@ -22,11 +23,15 @@ export async function processMarkdown(
   // Extract sections for table of contents
   const sections = extractSections(markdownContent);
 
+  // Remove the first h1 title to avoid duplication with page header
+  const processedContent = removeFirstH1Title(markdownContent);
+
   // Convert markdown to HTML
   const result = await remark()
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeSlug) // Add ID attributes to headings
     .use(rehypeStringify, { allowDangerousHtml: true })
-    .process(markdownContent);
+    .process(processedContent);
 
   const htmlContent = String(result);
 
@@ -50,6 +55,11 @@ export async function processMarkdown(
 function extractSections(content: string): DocSection[] {
   const sections: DocSection[] = [];
   const lines = content.split('\n');
+  const isDebugMode = typeof process !== 'undefined' && process.env['NODE_ENV'] === 'development';
+
+  if (isDebugMode) {
+    console.log('🔍 [ToC Debug] Starting section extraction from markdown content');
+  }
 
   for (const line of lines) {
     const match = line.match(/^(#{1,6})\s+(.+)$/);
@@ -61,13 +71,31 @@ function extractSections(content: string): DocSection[] {
         .replace(/[^\w\s-]/g, '')
         .replace(/\s+/g, '-');
 
-      sections.push({
+      const section = {
         id: `section-${sections.length}`,
         title,
         level,
         anchor,
-      });
+      };
+
+      sections.push(section);
+
+      if (isDebugMode) {
+        console.log(`📋 [ToC Debug] Section extracted:`, {
+          level,
+          title,
+          anchor,
+          originalLine: line,
+        });
+      }
     }
+  }
+
+  if (isDebugMode) {
+    console.log(
+      `✅ [ToC Debug] Total ${sections.length} sections extracted:`,
+      sections.map(s => ({ title: s.title, anchor: s.anchor }))
+    );
   }
 
   return sections;
@@ -124,6 +152,49 @@ export function calculateReadingTime(content: string): number {
  */
 export function calculateWordCount(content: string): number {
   return content.split(/\s+/).filter(word => word.length > 0).length;
+}
+
+/**
+ * Remove the first h1 title from markdown content to avoid duplication
+ * with the page header that displays the same title
+ */
+function removeFirstH1Title(content: string): string {
+  const lines = content.split('\n');
+  let foundFirstH1 = false;
+  let removeNextDescription = false;
+
+  const filteredLines = lines.filter(line => {
+    // Match h1 heading
+    const h1Match = line.match(/^#\s+(.+)$/);
+
+    if (h1Match && !foundFirstH1) {
+      foundFirstH1 = true;
+      removeNextDescription = true;
+      return false; // Remove the first h1
+    }
+
+    // Remove the description paragraph that immediately follows the first h1
+    if (removeNextDescription) {
+      // Skip empty lines
+      if (line.trim() === '') {
+        return false;
+      }
+      // Remove the first non-empty line after h1 (description)
+      if (line.trim() !== '' && !line.match(/^#+\s/)) {
+        removeNextDescription = false;
+        return false; // Remove the description
+      }
+      // If we encounter another heading, stop removing
+      if (line.match(/^#+\s/)) {
+        removeNextDescription = false;
+        return true; // Keep this line
+      }
+    }
+
+    return true; // Keep all other lines
+  });
+
+  return filteredLines.join('\n');
 }
 
 /**

@@ -24,7 +24,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Test Beaver Action (with Codecov)
         id: test-beaver
@@ -34,7 +34,6 @@ jobs:
           codecov-token: ${{ secrets.CODECOV_API_TOKEN }}
           enable-quality-dashboard: true
           deploy-to-pages: true
-          site-subdirectory: beaver
       
       - name: Verify outputs
         run: |

@@ -1,0 +1,1141 @@
+---
+/**
+ * Settings Component
+ *
+ * Provides comprehensive user settings interface for:
+ * - Notification preferences (ON/OFF control)
+ * - Version checking preferences
+ * - Theme settings
+ * - Privacy controls
+ *
+ * Integrates with Beaver design system and includes:
+ * - Responsive design
+ * - Dark/Light theme support
+ * - Smooth animations
+ * - Accessibility features
+ */
+import { z } from 'zod';
+import { BaseUIPropsSchema } from '../lib/schemas/ui';
+
+// Settings component props schema
+export const SettingsPropsSchema = BaseUIPropsSchema.extend({
+  /** Initial open state */
+  isOpen: z.boolean().default(false),
+  /** Position of the settings panel */
+  position: z.enum(['left', 'right', 'center']).default('right'),
+  /** Size of the settings panel */
+  size: z.enum(['sm', 'md', 'lg', 'xl']).default('md'),
+  /** Enable modal backdrop */
+  modal: z.boolean().default(true),
+  /** Title of the settings panel */
+  title: z.string().default('設定'),
+});
+
+export type SettingsProps = z.infer<typeof SettingsPropsSchema>;
+
+type Props = SettingsProps;
+
+const {
+  isOpen = false,
+  position = 'right',
+  size = 'md',
+  modal = true,
+  title = '設定',
+  className = '',
+  id = 'user-settings',
+  style,
+  'data-testid': testId = 'user-settings',
+  'aria-label': ariaLabel = 'ユーザー設定',
+  ...rest
+} = Astro.props;
+
+// Validate props with Zod schema
+try {
+  SettingsPropsSchema.parse(Astro.props);
+} catch (error) {
+  console.warn('Settings props validation failed:', error);
+}
+
+// Panel size classes
+const sizeClasses = {
+  sm: 'max-w-sm',
+  md: 'max-w-md',
+  lg: 'max-w-lg',
+  xl: 'max-w-xl',
+};
+
+// Position classes for slide-in animation
+const positionClasses = {
+  left: 'left-0',
+  right: 'right-0',
+  center: 'left-1/2 -translate-x-1/2',
+};
+
+// Build component classes
+const panelClasses = [
+  'fixed top-0 h-full z-50',
+  'surface-raised shadow-strong border-soft',
+  'overflow-y-auto',
+  'transition-smooth',
+  sizeClasses[size],
+  positionClasses[position],
+  className,
+]
+  .filter(Boolean)
+  .join(' ');
+
+const backdropClasses = [
+  'fixed inset-0 z-40',
+  'bg-black/50 dark:bg-black/70',
+  'backdrop-blur-sm',
+  'transition-smooth',
+].join(' ');
+
+// Generate unique IDs
+const settingsId = id || `settings-${Math.random().toString(36).substring(2, 11)}`;
+const contentId = `${settingsId}-content`;
+const headerID = `${settingsId}-header`;
+---
+
+<!-- Modal Backdrop -->{
+  modal && (
+    <div
+      id={`${settingsId}-backdrop`}
+      class={backdropClasses}
+      style={`display: ${isOpen ? 'block' : 'none'}`}
+      data-settings-backdrop
+      aria-hidden="true"
+    />
+  )
+}
+
+<!-- Settings Panel -->
+<div
+  id={settingsId}
+  class={panelClasses}
+  style={`display: ${isOpen ? 'block' : 'none'}; ${style || ''}`}
+  data-testid={testId}
+  data-position={position}
+  data-size={size}
+  aria-label={ariaLabel}
+  aria-labelledby={headerID}
+  role="dialog"
+  aria-modal={modal}
+  {...rest}
+>
+  <!-- Settings Header -->
+  <div
+    id={headerID}
+    class="sticky top-0 surface bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-b border-soft p-responsive"
+  >
+    <div class="flex items-center justify-between">
+      <h2 class="text-heading-2 text-heading font-semibold">
+        {title}
+      </h2>
+
+      <button
+        type="button"
+        class="btn btn-ghost p-2 touch-target-sm"
+        data-action="close"
+        aria-label="設定を閉じる"
+      >
+        <svg
+          class="icon icon-md"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Settings Content -->
+  <div id={contentId} class="p-responsive space-stack-lg">
+    <!-- Basic Settings Section -->
+    <section class="space-stack-md">
+      <h3 class="text-heading-3 text-heading font-semibold border-b border-soft pb-2">
+        ⚙️ 基本設定
+      </h3>
+
+      <div class="space-stack-sm">
+        <!-- Notifications Toggle -->
+        <div class="flex items-center justify-between py-3">
+          <div class="flex-1 space-stack-xs">
+            <label class="text-body font-medium text-heading" for="notifications-enabled">
+              🔔 自動更新通知
+            </label>
+            <p class="text-body-small text-muted">
+              新しいバージョンが利用可能になったときに通知を表示します
+            </p>
+          </div>
+
+          <div class="ml-4">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                id="notifications-enabled"
+                class="sr-only peer"
+                data-setting="notifications.enabled"
+              />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Theme Selection -->
+        <div class="flex items-center justify-between py-3">
+          <div class="flex-1 space-stack-xs">
+            <label class="text-body font-medium text-heading" for="theme-select"> 🎨 テーマ </label>
+            <p class="text-body-small text-muted">外観のテーマを選択します</p>
+          </div>
+
+          <div class="ml-4 min-w-0 w-32">
+            <select id="theme-select" class="input w-full" data-setting="ui.theme">
+              <option value="system">システム</option>
+              <option value="light">ライト</option>
+              <option value="dark">ダーク</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Auto Reload -->
+        <div class="flex items-center justify-between py-3">
+          <div class="flex-1 space-stack-xs">
+            <label class="text-body font-medium text-heading" for="auto-reload">
+              🔄 自動リロード
+            </label>
+            <p class="text-body-small text-muted">バージョン更新時に自動でページをリロードします</p>
+          </div>
+
+          <div class="ml-4">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                id="auto-reload"
+                class="sr-only peer"
+                data-setting="pwa.autoReload"
+              />
+              <div class="toggle-switch"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Auto Reload Delay -->
+        <div
+          class="auto-reload-subsetting ml-4 pl-4 border-l-2 border-gray-200 dark:border-gray-700"
+          id="auto-reload-delay-container"
+        >
+          <label class="text-body font-medium text-heading" for="auto-reload-delay">
+            ⏱️ 自動リロード遅延時間
+          </label>
+          <div class="flex items-center space-x-3 mt-2">
+            <input
+              type="range"
+              id="auto-reload-delay"
+              class="flex-1"
+              min="0"
+              max="30"
+              step="1"
+              data-setting="pwa.autoReloadDelay"
+            />
+            <span
+              id="auto-reload-delay-value"
+              class="text-body-small font-mono text-muted min-w-0 w-12 text-right">5秒</span
+            >
+          </div>
+          <p class="text-body-small text-muted mt-1">0秒で即座、5秒でユーザーの準備時間を確保</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Advanced Settings Toggle -->
+    <section class="space-stack-md">
+      <button
+        type="button"
+        id="advanced-settings-toggle"
+        class="w-full flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span class="text-body font-medium text-heading"> 🔧 詳細設定 </span>
+        <svg
+          id="advanced-settings-icon"
+          class="w-5 h-5 text-muted transform transition-transform"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
+          ></path>
+        </svg>
+      </button>
+
+      <!-- Advanced Settings Content -->
+      <div id="advanced-settings-content" class="hidden space-stack-md">
+        <!-- PWA Settings -->
+        <div class="space-stack-sm">
+          <h4 class="text-body font-semibold text-heading mb-3">📱 PWA機能</h4>
+
+          <!-- PWA Enable Toggle -->
+          <div class="flex items-center justify-between py-2">
+            <div class="flex-1">
+              <label class="text-body font-medium text-heading" for="pwa-enabled">
+                PWA機能を有効化
+              </label>
+              <p class="text-body-small text-muted">オフライン機能と自動更新を有効にします</p>
+            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer ml-4">
+              <input
+                type="checkbox"
+                id="pwa-enabled"
+                class="sr-only peer"
+                data-setting="pwa.enabled"
+              />
+              <div class="toggle-switch-sm"></div>
+            </label>
+          </div>
+
+          <!-- Auto Update Service Worker -->
+          <div class="pwa-subsetting flex items-center justify-between py-2">
+            <div class="flex-1">
+              <label class="text-body font-medium text-heading" for="auto-update-sw">
+                自動アップデート
+              </label>
+              <p class="text-body-small text-muted">
+                新しいバージョンが利用可能になったときに自動的に適用します
+              </p>
+            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer ml-4">
+              <input
+                type="checkbox"
+                id="auto-update-sw"
+                class="sr-only peer"
+                data-setting="pwa.autoUpdate"
+              />
+              <div class="toggle-switch-sm"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Notification Settings -->
+        <div class="space-stack-sm">
+          <h4 class="text-body font-semibold text-heading mb-3">🔔 通知詳細設定</h4>
+
+          <!-- Notification Position -->
+          <div class="notification-subsetting flex items-center justify-between py-2">
+            <div class="flex-1">
+              <label class="text-body font-medium text-heading" for="notification-position">
+                通知表示位置
+              </label>
+              <p class="text-body-small text-muted">通知バナーの表示位置を選択します</p>
+            </div>
+
+            <div class="ml-4 min-w-0 w-24">
+              <select
+                id="notification-position"
+                class="input w-full"
+                data-setting="notifications.position"
+              >
+                <option value="top">上部</option>
+                <option value="bottom">下部</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- UI Settings -->
+        <div class="space-stack-sm">
+          <h4 class="text-body font-semibold text-heading mb-3">🎨 表示詳細設定</h4>
+
+          <!-- Enable Animations -->
+          <div class="flex items-center justify-between py-2">
+            <div class="flex-1">
+              <label class="text-body font-medium text-heading" for="ui-animations">
+                アニメーション
+              </label>
+              <p class="text-body-small text-muted">UI要素のアニメーション効果を有効にします</p>
+            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer ml-4">
+              <input
+                type="checkbox"
+                id="ui-animations"
+                class="sr-only peer"
+                data-setting="ui.animations"
+              />
+              <div class="toggle-switch-sm"></div>
+            </label>
+          </div>
+
+          <!-- Compact Mode -->
+          <div class="flex items-center justify-between py-2">
+            <div class="flex-1">
+              <label class="text-body font-medium text-heading" for="compact-mode">
+                コンパクトモード
+              </label>
+              <p class="text-body-small text-muted">より密度の高いレイアウトを使用します</p>
+            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer ml-4">
+              <input
+                type="checkbox"
+                id="compact-mode"
+                class="sr-only peer"
+                data-setting="ui.compactMode"
+              />
+              <div class="toggle-switch-sm"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- PWA Actions -->
+        <div class="space-stack-sm">
+          <h4 class="text-body font-semibold text-heading mb-3">🛠️ システム操作</h4>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button type="button" id="clear-pwa-cache" class="btn btn-outline btn-sm">
+              <svg class="icon icon-sm mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v3M4 7h16"
+                ></path>
+              </svg>
+              キャッシュクリア
+            </button>
+
+            <button type="button" id="force-sw-update" class="btn btn-outline btn-sm">
+              <svg class="icon icon-sm mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
+              </svg>
+              強制アップデート
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Actions -->
+    <section class="border-t border-soft pt-6 space-stack-md">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <button type="button" class="btn btn-outline flex-1" data-action="reset">
+          <svg
+            class="icon icon-sm mr-2"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+          初期設定に戻す
+        </button>
+
+        <button type="button" class="btn btn-ghost flex-1" data-action="export">
+          <svg
+            class="icon icon-sm mr-2"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            ></path>
+          </svg>
+          設定をエクスポート
+        </button>
+      </div>
+
+      <div class="text-center">
+        <label class="btn btn-ghost cursor-pointer">
+          <svg
+            class="icon icon-sm mr-2"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
+            ></path>
+          </svg>
+          設定をインポート
+          <input type="file" accept=".json" class="sr-only" data-action="import" />
+        </label>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  // Settings functionality (client-side)
+  import type {
+    UserSettingsManager,
+    NotificationSettings,
+    UISettings,
+    PrivacySettings,
+    PWASettings,
+  } from '../lib/settings';
+
+  // Settings panel management
+  let settingsManager: UserSettingsManager | null = null;
+  let settingsPanel: HTMLElement | null = null;
+  let backdrop: HTMLElement | null = null;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initializeSettings();
+  });
+
+  async function initializeSettings() {
+    // Wait for settings manager to be available
+    await loadSettingsManager();
+
+    settingsPanel = document.getElementById('user-settings');
+    backdrop = document.querySelector('[data-settings-backdrop]');
+
+    if (!settingsPanel || !settingsManager) return;
+
+    // Load current settings into UI
+    loadSettingsIntoUI();
+
+    // Set up event listeners
+    setupEventListeners();
+
+    // Listen for settings changes
+    settingsManager.addEventListener('settings:changed', (e: Event) => {
+      const customEvent = e as CustomEvent;
+      handleSettingsChange(customEvent.detail);
+    });
+  }
+
+  async function loadSettingsManager() {
+    try {
+      // Dynamically import settings manager
+      const { createSettingsManager } = await import('../lib/settings');
+      settingsManager = createSettingsManager();
+    } catch (error) {
+      console.error('Failed to load settings manager:', error);
+    }
+  }
+
+  function loadSettingsIntoUI() {
+    if (!settingsManager || !settingsPanel) return;
+
+    const settings = settingsManager.getSettings();
+
+    // Load notification settings
+    setCheckboxValue('notifications-enabled', settings.notifications.enabled);
+    setSelectValue('notification-position', settings.notifications.position);
+
+    // Load PWA settings with fallbacks
+    const pwaSettings = settings.pwa || {
+      enabled: false,
+      offlineMode: true,
+      autoUpdate: true,
+      autoReload: false,
+      autoReloadDelay: 5000,
+      cacheStrategy: 'background',
+      pushNotifications: false,
+    };
+
+    setCheckboxValue('pwa-enabled', pwaSettings.enabled);
+    setCheckboxValue('offline-mode', pwaSettings.offlineMode);
+    setCheckboxValue('auto-update-sw', pwaSettings.autoUpdate);
+    setCheckboxValue('auto-reload', pwaSettings.autoReload);
+    setRangeValue('auto-reload-delay', Math.round(pwaSettings.autoReloadDelay / 1000));
+
+    // Debug auto-reload settings
+    console.log('🔄 Auto-reload settings loaded:', {
+      autoReload: pwaSettings.autoReload,
+      autoReloadDelay: pwaSettings.autoReloadDelay,
+      delaySeconds: Math.round(pwaSettings.autoReloadDelay / 1000),
+    });
+    setSelectValue('cache-strategy', pwaSettings.cacheStrategy);
+    setCheckboxValue('push-notifications', pwaSettings.pushNotifications);
+
+    // Load UI settings
+    setSelectValue('theme-select', settings.ui.theme);
+    setCheckboxValue('ui-animations', settings.ui.animations);
+    setCheckboxValue('compact-mode', settings.ui.compactMode);
+
+    // Load privacy settings
+    setCheckboxValue('analytics-enabled', settings.privacy.analytics);
+    setCheckboxValue('error-reporting', settings.privacy.errorReporting);
+
+    // Update subsetting visibility
+    updateSubsettingVisibility();
+  }
+
+  function setupEventListeners() {
+    if (!settingsPanel || !settingsManager) return;
+
+    // Close button
+    const closeButton = settingsPanel.querySelector('[data-action="close"]');
+    closeButton?.addEventListener('click', closeSettings);
+
+    // Backdrop click
+    backdrop?.addEventListener('click', closeSettings);
+
+    // Setting inputs
+    const settingInputs = settingsPanel.querySelectorAll('[data-setting]');
+    settingInputs.forEach(input => {
+      input.addEventListener('change', handleSettingChange);
+    });
+
+    // Action buttons
+    const resetButton = settingsPanel.querySelector('[data-action="reset"]');
+    resetButton?.addEventListener('click', resetSettings);
+
+    const exportButton = settingsPanel.querySelector('[data-action="export"]');
+    exportButton?.addEventListener('click', exportSettings);
+
+    const importInput = settingsPanel.querySelector('[data-action="import"]');
+    importInput?.addEventListener('change', importSettings);
+
+    // Escape key
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && isSettingsOpen()) {
+        closeSettings();
+      }
+    });
+
+    // Advanced settings toggle
+    const advancedToggle = settingsPanel.querySelector('#advanced-settings-toggle');
+    advancedToggle?.addEventListener('click', toggleAdvancedSettings);
+
+    // PWA specific events
+    const clearCacheButton = settingsPanel.querySelector('#clear-pwa-cache');
+    clearCacheButton?.addEventListener('click', clearPWACache);
+
+    const forceUpdateButton = settingsPanel.querySelector('#force-sw-update');
+    forceUpdateButton?.addEventListener('click', forceServiceWorkerUpdate);
+
+    // Auto-reload delay range input - only handle display updates
+    const autoReloadDelayRange = settingsPanel.querySelector('#auto-reload-delay');
+    autoReloadDelayRange?.addEventListener('input', (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const value = parseInt(target.value);
+      updateRangeDisplay('auto-reload-delay', value);
+    });
+  }
+
+  function handleSettingChange(event: Event) {
+    if (!settingsManager) {
+      console.error('❌ Settings manager not available!');
+      return;
+    }
+
+    console.log('✅ Settings manager available:', typeof settingsManager);
+
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    const settingPath = target.getAttribute('data-setting');
+
+    if (!settingPath) return;
+
+    const value =
+      target.type === 'checkbox'
+        ? (target as HTMLInputElement).checked
+        : target.type === 'number' || target.type === 'range'
+          ? Number(target.value)
+          : target.value;
+
+    // Debug logging
+    const debugMode = settingsManager.getPWASettings().debugMode;
+    if (debugMode) {
+      console.log('🔧 Setting change:', {
+        settingPath,
+        value,
+        type: target.type,
+        element: target.id,
+      });
+    }
+
+    const pathParts = settingPath.split('.');
+    const [section, subsection, key] = pathParts;
+
+    if (section === 'notifications') {
+      if (subsection === 'browser') {
+        // Handle nested browser notification settings
+        const currentSettings = settingsManager.getNotificationSettings();
+        settingsManager.updateNotificationSettings({
+          browser: {
+            ...currentSettings.browser,
+            [key as keyof typeof currentSettings.browser]: value,
+          },
+        });
+      } else {
+        settingsManager.updateNotificationSettings({
+          [subsection as keyof NotificationSettings]: value,
+        });
+      }
+    } else if (section === 'pwa') {
+      // Use subsection as the PWA setting key (pwa.autoReload -> subsection = 'autoReload')
+      const pwaKey = subsection;
+
+      // Special handling for autoReloadDelay (convert seconds to milliseconds)
+      if (pwaKey === 'autoReloadDelay') {
+        const delayMs = typeof value === 'number' ? value * 1000 : parseInt(String(value)) * 1000;
+        if (debugMode) {
+          console.log('🔧 PWA autoReloadDelay update:', { pwaKey, value, delayMs });
+        }
+        settingsManager.updatePWASettings({ [pwaKey as keyof PWASettings]: delayMs });
+      } else {
+        if (debugMode) {
+          console.log('🔧 PWA setting update:', { pwaKey, value, type: typeof value });
+        }
+        settingsManager.updatePWASettings({ [pwaKey as keyof PWASettings]: value });
+      }
+
+      // Handle PWA system integration
+      if (pwaKey === 'enabled' && (window as any).beaverSystems?.pwa) {
+        if (value) {
+          (window as any).beaverSystems.pwa.enablePWA();
+        } else {
+          (window as any).beaverSystems.pwa.disablePWA();
+        }
+      }
+    } else if (section === 'ui') {
+      settingsManager.updateUISettings({ [key as keyof UISettings]: value });
+    } else if (section === 'privacy') {
+      settingsManager.updatePrivacySettings({ [key as keyof PrivacySettings]: value });
+    }
+
+    // Update subsetting visibility
+    updateSubsettingVisibility();
+
+    // Check localStorage before and after
+    const beforeSave = localStorage.getItem('beaver_user_settings');
+
+    // Success logging
+    console.log('✅ Setting saved:', {
+      section,
+      key: section === 'pwa' ? subsection : key,
+      value,
+      settingPath,
+    });
+
+    // Check if actually saved to localStorage
+    setTimeout(() => {
+      const afterSave = localStorage.getItem('beaver_user_settings');
+      const changed = beforeSave !== afterSave;
+      console.log('💾 LocalStorage check:', {
+        changed,
+        before: beforeSave ? JSON.parse(beforeSave).pwa?.autoReload : 'none',
+        after: afterSave ? JSON.parse(afterSave).pwa?.autoReload : 'none',
+      });
+    }, 100);
+  }
+
+  function handleSettingsChange(detail: any) {
+    // Handle specific setting changes that affect other components
+    if (detail.section === 'notifications' && 'enabled' in detail.updates) {
+      // Dispatch event for notification system
+      document.dispatchEvent(
+        new CustomEvent('settings:notifications-toggled', {
+          detail: { enabled: detail.updates.enabled },
+        })
+      );
+    }
+
+    if (detail.section === 'pwa' && 'enabled' in detail.updates) {
+      // Dispatch event for PWA system
+      document.dispatchEvent(
+        new CustomEvent('settings:pwa-toggled', {
+          detail: { enabled: detail.updates.enabled },
+        })
+      );
+    }
+
+    if (detail.section === 'pwa' && 'autoReload' in detail.updates) {
+      // Update auto-reload delay visibility
+      updateAutoReloadDelayVisibility();
+
+      // Dispatch event for auto-reload system
+      document.dispatchEvent(
+        new CustomEvent('settings:pwa-auto-reload-toggled', {
+          detail: {
+            enabled: detail.updates.autoReload,
+            delay: settingsManager?.getPWASettings().autoReloadDelay,
+          },
+        })
+      );
+    }
+
+    if (detail.section === 'ui' && 'theme' in detail.updates) {
+      // Handle theme change
+      applyTheme(detail.updates.theme);
+    }
+  }
+
+  function updateSubsettingVisibility() {
+    // Show/hide notification subsettings
+    const notificationsEnabled = getCheckboxValue('notifications-enabled');
+    const notificationSubsettings = settingsPanel?.querySelectorAll('.notification-subsetting');
+    notificationSubsettings?.forEach(element => {
+      (element as HTMLElement).style.display = notificationsEnabled ? 'block' : 'none';
+    });
+
+    // Show/hide PWA subsettings
+    const pwaEnabled = getCheckboxValue('pwa-enabled');
+    const pwaSubsettings = settingsPanel?.querySelectorAll('.pwa-subsetting');
+    pwaSubsettings?.forEach(element => {
+      (element as HTMLElement).style.display = pwaEnabled ? 'block' : 'none';
+    });
+
+    // Show/hide auto-reload delay setting
+    updateAutoReloadDelayVisibility();
+  }
+
+  function updateAutoReloadDelayVisibility() {
+    const autoReloadEnabled = getCheckboxValue('auto-reload');
+    const delayContainer = settingsPanel?.querySelector('#auto-reload-delay-container');
+    if (delayContainer) {
+      (delayContainer as HTMLElement).style.display = autoReloadEnabled ? 'block' : 'none';
+    }
+  }
+
+  function toggleAdvancedSettings() {
+    const content = settingsPanel?.querySelector('#advanced-settings-content');
+    const icon = settingsPanel?.querySelector('#advanced-settings-icon');
+
+    if (content && icon) {
+      const isHidden = content.classList.contains('hidden');
+
+      if (isHidden) {
+        content.classList.remove('hidden');
+        icon.classList.add('rotate-180');
+      } else {
+        content.classList.add('hidden');
+        icon.classList.remove('rotate-180');
+      }
+    }
+  }
+
+  function applyTheme(theme: string) {
+    const html = document.documentElement;
+
+    if (theme === 'dark') {
+      html.classList.add('dark');
+      html.setAttribute('data-theme', 'dark');
+    } else if (theme === 'light') {
+      html.classList.remove('dark');
+      html.setAttribute('data-theme', 'light');
+    } else {
+      // System theme
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (systemDark) {
+        html.classList.add('dark');
+        html.setAttribute('data-theme', 'dark');
+      } else {
+        html.classList.remove('dark');
+        html.setAttribute('data-theme', 'light');
+      }
+    }
+  }
+
+  function resetSettings() {
+    if (!settingsManager) return;
+
+    if (confirm('すべての設定を初期値に戻しますか？')) {
+      settingsManager.resetToDefaults();
+      loadSettingsIntoUI();
+    }
+  }
+
+  function exportSettings() {
+    if (!settingsManager) return;
+
+    const settingsJson = settingsManager.exportSettings();
+    const blob = new Blob([settingsJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `beaver-settings-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function importSettings(event: Event) {
+    if (!settingsManager) return;
+
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const settingsJson = e.target?.result as string;
+        const success = settingsManager!.importSettings(settingsJson);
+
+        if (success) {
+          loadSettingsIntoUI();
+          alert('設定をインポートしました');
+        } else {
+          alert('設定ファイルの形式が正しくありません');
+        }
+      } catch (error) {
+        alert('設定のインポートに失敗しました');
+        console.error('Import error:', error);
+      }
+    };
+    reader.readAsText(file);
+
+    // Reset input
+    input.value = '';
+  }
+
+  function openSettings() {
+    if (!settingsPanel) return;
+
+    settingsPanel.style.display = 'block';
+    if (backdrop) {
+      backdrop.style.display = 'block';
+    }
+
+    // Add animation class
+    requestAnimationFrame(() => {
+      settingsPanel?.classList.add('slide-in');
+      backdrop?.classList.add('fade-in');
+    });
+
+    // Focus management
+    const firstFocusable = settingsPanel.querySelector('button, input, select') as HTMLElement;
+    firstFocusable?.focus();
+  }
+
+  function closeSettings() {
+    if (!settingsPanel) return;
+
+    settingsPanel.classList.remove('slide-in');
+    backdrop?.classList.remove('fade-in');
+
+    setTimeout(() => {
+      settingsPanel!.style.display = 'none';
+      if (backdrop) {
+        backdrop.style.display = 'none';
+      }
+    }, 300);
+  }
+
+  function isSettingsOpen(): boolean {
+    return settingsPanel?.style.display === 'block' || false;
+  }
+
+  // Utility functions
+  function setCheckboxValue(id: string, value: boolean) {
+    const checkbox = document.getElementById(id) as HTMLInputElement;
+    if (checkbox) checkbox.checked = value;
+  }
+
+  function setSelectValue(id: string, value: string) {
+    const select = document.getElementById(id) as HTMLSelectElement;
+    if (select) select.value = value;
+  }
+
+  function setRangeValue(id: string, value: number) {
+    const range = document.getElementById(id) as HTMLInputElement;
+    if (range) {
+      range.value = value.toString();
+      // Update the display value
+      updateRangeDisplay(id, value);
+    }
+  }
+
+  function updateRangeDisplay(id: string, value: number) {
+    const displayElement = document.getElementById(id + '-value');
+    if (displayElement) {
+      displayElement.textContent = `${value}秒`;
+    }
+  }
+
+  function getCheckboxValue(id: string): boolean {
+    const checkbox = document.getElementById(id) as HTMLInputElement;
+    return checkbox ? checkbox.checked : false;
+  }
+
+  async function clearPWACache() {
+    const pwaSystem = (window as any).beaverSystems?.pwa;
+    if (pwaSystem) {
+      try {
+        await pwaSystem.clearCaches();
+        alert('🧹 PWAキャッシュをクリアしました');
+      } catch (error) {
+        console.error('Failed to clear PWA cache:', error);
+        alert('⚠️ キャッシュのクリアに失敗しました');
+      }
+    }
+  }
+
+  async function forceServiceWorkerUpdate() {
+    const pwaSystem = (window as any).beaverSystems?.pwa;
+    if (pwaSystem) {
+      try {
+        await pwaSystem.forceUpdate();
+        alert('🔄 Service Workerの強制更新を実行しました');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      } catch (error) {
+        console.error('Failed to force SW update:', error);
+        alert('⚠️ Service Workerの更新に失敗しました');
+      }
+    }
+  }
+
+  // Expose functions globally for external use
+  (window as any).openSettings = openSettings;
+  (window as any).closeSettings = closeSettings;
+  (window as any).settingsManager = settingsManager;
+</script>
+
+<style>
+  @reference "../styles/global.css";
+  /* Toggle Switch Styles */
+  .toggle-switch {
+    @apply relative w-11 h-6 bg-gray-200 rounded-full dark:bg-gray-700;
+    @apply after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600;
+  }
+
+  .toggle-switch-sm {
+    @apply relative w-8 h-4 bg-gray-200 rounded-full dark:bg-gray-700;
+    @apply after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-gray-600;
+  }
+
+  /* Peer state styles for toggles */
+  input[type='checkbox']:checked + .toggle-switch {
+    @apply bg-primary-600;
+  }
+
+  input[type='checkbox']:checked + .toggle-switch::after {
+    @apply translate-x-full border-white;
+  }
+
+  input[type='checkbox']:checked + .toggle-switch-sm {
+    @apply bg-primary-600;
+  }
+
+  input[type='checkbox']:checked + .toggle-switch-sm::after {
+    @apply translate-x-full border-white;
+  }
+
+  input[type='checkbox']:focus + .toggle-switch {
+    @apply outline-none ring-4 ring-primary-300 dark:ring-primary-800;
+  }
+
+  input[type='checkbox']:focus + .toggle-switch-sm {
+    @apply outline-none ring-2 ring-primary-300 dark:ring-primary-800;
+  }
+
+  /* Settings Panel Animations */
+  [data-position='right'] {
+    transform: translateX(100%);
+  }
+
+  [data-position='left'] {
+    transform: translateX(-100%);
+  }
+
+  [data-position='center'] {
+    transform: translateX(-50%) translateY(-100%);
+  }
+
+  .slide-in[data-position='right'] {
+    transform: translateX(0);
+  }
+
+  .slide-in[data-position='left'] {
+    transform: translateX(0);
+  }
+
+  .slide-in[data-position='center'] {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .fade-in {
+    opacity: 1;
+  }
+
+  [data-settings-backdrop] {
+    opacity: 0;
+  }
+
+  /* Subsetting styles */
+  .notification-subsetting,
+  .pwa-subsetting,
+  .auto-reload-subsetting {
+    @apply ml-4 pl-4 border-l-2 border-gray-200 dark:border-gray-700;
+  }
+
+  /* Responsive improvements */
+  @media (max-width: 640px) {
+    .toggle-switch {
+      @apply w-10 h-5 after:h-4 after:w-4;
+    }
+
+    .toggle-switch-sm {
+      @apply w-7 h-3.5 after:h-2.5 after:w-2.5;
+    }
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    .toggle-switch,
+    .toggle-switch-sm {
+      @apply border-2 border-gray-800 dark:border-gray-200;
+    }
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    .toggle-switch::after,
+    .toggle-switch-sm::after {
+      @apply transition-none;
+    }
+
+    [data-position] {
+      transform: none !important;
+    }
+
+    .slide-in {
+      animation: none !important;
+    }
+  }
+
+  /* Print styles */
+  @media print {
+    #user-settings,
+    [data-settings-backdrop] {
+      display: none !important;
+    }
+  }
+</style>

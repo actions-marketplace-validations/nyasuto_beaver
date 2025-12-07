@@ -5,6 +5,7 @@ import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { createGitHubClient } from '../src/lib/github/client.js';
 import { GitHubIssuesService } from '../src/lib/github/issues.js';
+import { GitHubPullsService } from '../src/lib/github/pulls.js';
 import { GitHubConfigSchema } from '../src/lib/schemas/config.js';
 import { createTestClassificationEngine } from '../src/lib/classification/engine.js';
 import { z } from 'zod';
@@ -43,20 +44,30 @@ function validateEnvironment() {
     GITHUB_REPO: process.env['GITHUB_REPO'],
   };
 
+  // デバッグ情報を出力（トークンは部分的にマスク）
+  console.log('🔍 環境変数の検証:');
+  console.log(`  - GITHUB_TOKEN: ${env.GITHUB_TOKEN ? `${env.GITHUB_TOKEN.substring(0, 4)}...` : 'undefined'}`);
+  console.log(`  - GITHUB_OWNER: ${env.GITHUB_OWNER || 'undefined'}`);
+  console.log(`  - GITHUB_REPO: ${env.GITHUB_REPO || 'undefined'}`);
+  console.log(`  - CI環境: ${process.env['CI'] || 'false'}`);
+
   try {
-    return EnvSchema.parse(env);
+    const validatedEnv = EnvSchema.parse(env);
+    console.log('✅ 環境変数の検証が完了しました');
+    return validatedEnv;
   } catch (error) {
-    console.warn('⚠️ 環境変数が設定されていません:');
+    console.error('❌ 環境変数の検証に失敗しました:');
     if (error instanceof z.ZodError) {
       error.issues.forEach((err) => {
-        console.warn(`  - ${err.path.join('.')}: ${err.message}`);
+        console.error(`  - ${err.path.join('.')}: ${err.message}`);
       });
     }
-    console.warn('\nGitHub データの取得をスキップします。');
-    console.warn('実際のデータを取得するには以下の環境変数を設定してください:');
-    console.warn('  - GITHUB_TOKEN: GitHub Personal Access Token');
-    console.warn('  - GITHUB_OWNER: リポジトリのオーナー名');
-    console.warn('  - GITHUB_REPO: リポジトリ名');
+    console.error('\n🚨 データ取得プロセスがスキップされました。');
+    console.error('GitHub Actions環境では以下の環境変数が自動設定されているはずです:');
+    console.error('  - GITHUB_TOKEN: GitHub組み込みトークン');
+    console.error('  - GITHUB_OWNER: リポジトリオーナー（${{ github.repository_owner }}）');
+    console.error('  - GITHUB_REPO: リポジトリ名（${{ github.event.repository.name }}）');
+    console.error('\nこのエラーが発生した場合は、GitHub Actions設定を確認してください。');
     return null;
   }
 }
@@ -95,7 +106,16 @@ async function fetchAndSaveGitHubData() {
   
   // 環境変数が設定されていない場合はスキップ
   if (!env) {
-    console.log('📋 サンプルデータを使用してビルドを継続します。');
+    console.error('🚨 環境変数の検証に失敗したため、データ取得をスキップします。');
+    console.error('⚠️ 静的データが生成されないため、アプリケーションでエラーが発生します。');
+    
+    // CI環境では失敗として扱う
+    if (process.env['CI'] === 'true') {
+      console.error('💀 CI環境では環境変数の設定が必須です。プロセスを終了します。');
+      process.exit(1);
+    }
+    
+    console.log('📋 開発環境: サンプルデータを使用してビルドを継続します。');
     return;
   }
   
@@ -124,20 +144,41 @@ async function fetchAndSaveGitHubData() {
     // Issues サービスの作成と実行（オープンIssueのみ）
     const issuesService = new GitHubIssuesService(clientResult.data);
     
-    // オープンなIssueのみを取得
-    const openIssuesResult = await issuesService.getIssues({ 
-      state: 'open', 
-      per_page: 100,
-      sort: 'updated',
-      direction: 'desc'
-    });
+    // GraphQL API を優先して使用（Rate Limit対策）
+    console.log('🚀 GraphQL API を使用してIssue取得を最適化...');
+    const optimizedIssuesResult = await issuesService.fetchIssuesOptimized(
+      config.owner,
+      config.repo,
+      {
+        state: 'open',
+        per_page: 100,
+        sort: 'updated',
+        direction: 'desc'
+      }
+    );
     
-    if (!openIssuesResult.success) {
-      throw new Error(`GitHub API エラー (open issues): ${openIssuesResult.error.message}`);
+    let issues;
+    if (!optimizedIssuesResult.success) {
+      console.warn('⚠️ 最適化されたAPI取得に失敗、標準REST APIにフォールバック...');
+      
+      // フォールバック: 従来のREST API
+      const openIssuesResult = await issuesService.getIssues({
+        state: 'open', 
+        per_page: 100,
+        sort: 'updated',
+        direction: 'desc'
+      });
+      
+      if (!openIssuesResult.success) {
+        throw new Error(`GitHub API エラー (open issues): ${openIssuesResult.error.message}`);
+      }
+      
+      console.log(`✅ REST API fallback: ${openIssuesResult.data.length} 件のオープン Issue を取得しました`);
+      issues = openIssuesResult.data;
+    } else {
+      console.log(`✅ GraphQL API: ${optimizedIssuesResult.data.length} 件のオープン Issue を取得しました`);
+      issues = optimizedIssuesResult.data;
     }
-    
-    const issues = openIssuesResult.data;
-    console.log(`✅ ${issues.length} 件のオープン Issue を取得しました`);
 
     // Issue分類処理を実行
     console.log('🤖 Issue分類エンジンを開始...');
@@ -179,6 +220,57 @@ async function fetchAndSaveGitHubData() {
       );
     }
 
+    // Pull Requests の取得
+    console.log('📥 GitHub Pull Requests を取得中...');
+    
+    const pullsService = new GitHubPullsService(clientResult.data);
+    
+    // すべての状態のPull Requestを取得（open, closed）
+    const pullsResults = await Promise.all([
+      pullsService.fetchEnhancedPullRequests(config.owner, config.repo, {
+        state: 'open',
+        per_page: 100,
+        sort: 'updated',
+        direction: 'desc'
+      }),
+      pullsService.fetchEnhancedPullRequests(config.owner, config.repo, {
+        state: 'closed',
+        per_page: 100,
+        sort: 'updated', 
+        direction: 'desc'
+      })
+    ]);
+
+    const allPulls = [];
+    for (const [index, result] of pullsResults.entries()) {
+      if (!result.success) {
+        console.warn(`⚠️ Pull Requests取得でエラーが発生しました (${index === 0 ? 'open' : 'closed'}):`, result.error.message);
+        continue;
+      }
+      allPulls.push(...result.data);
+    }
+
+    console.log(`✅ ${allPulls.length} 件のPull Request を取得しました`);
+
+    // Pull Requests データを保存
+    saveJsonFile(
+      join(dataDir, 'pulls.json'),
+      allPulls,
+      'Pull Requests データ'
+    );
+
+    // 個別 Pull Request ファイルの保存
+    const pullsDir = join(dataDir, 'pulls');
+    ensureDirectoryExists(pullsDir);
+
+    for (const pr of allPulls) {
+      saveJsonFile(
+        join(pullsDir, `${pr.number}.json`),
+        pr,
+        `Pull Request #${pr.number}`
+      );
+    }
+
     // 個別 Issue ファイルの保存（分類結果を含む）
     const issuesDir = join(dataDir, 'issues');
     ensureDirectoryExists(issuesDir);
@@ -199,7 +291,7 @@ async function fetchAndSaveGitHubData() {
       );
     }
 
-    // 統計情報の計算（オープンIssueのみなので閉じたIssueは0）
+    // 統計情報の計算
     const openIssues = issues; // すべてオープンIssue
     const closedIssues: typeof issues = []; // 閉じたIssueは取得していない
     const labelCounts = issues.reduce((acc, issue) => {
@@ -209,6 +301,10 @@ async function fetchAndSaveGitHubData() {
       return acc;
     }, {} as Record<string, number>);
 
+    // Pull Requests統計の計算（マージ済みPRは除外）
+    const openPulls = allPulls.filter(pr => pr.state === 'open');
+    const closedPulls = allPulls.filter(pr => pr.state === 'closed');
+
     // メタデータの保存
     const metadata = {
       lastUpdated: new Date().toISOString(),
@@ -217,13 +313,21 @@ async function fetchAndSaveGitHubData() {
         name: config.repo,
       },
       statistics: {
-        total: issues.length,
-        open: openIssues.length,
-        closed: closedIssues.length,
+        issues: {
+          total: issues.length,
+          open: openIssues.length,
+          closed: closedIssues.length,
+        },
+        pullRequests: {
+          total: allPulls.length,
+          open: openPulls.length,
+          closed: closedPulls.length,
+        },
         labels: Object.keys(labelCounts).length,
       },
       labelCounts,
       lastIssue: issues.length > 0 ? issues[0] : null,
+      lastPullRequest: allPulls.length > 0 ? allPulls[0] : null,
     };
 
     saveJsonFile(
@@ -235,9 +339,15 @@ async function fetchAndSaveGitHubData() {
     // 成功メッセージ
     console.log('\n🎉 GitHub データの取得と保存が完了しました!');
     console.log(`📊 統計情報:`);
-    console.log(`   - 総 Issue 数: ${metadata.statistics.total}`);
-    console.log(`   - オープン: ${metadata.statistics.open}`);
-    console.log(`   - クローズ: ${metadata.statistics.closed}`);
+    console.log(`   Issues:`);
+    console.log(`     - 総数: ${metadata.statistics.issues.total}`);
+    console.log(`     - オープン: ${metadata.statistics.issues.open}`);
+    console.log(`     - クローズ: ${metadata.statistics.issues.closed}`);
+    console.log(`   Pull Requests:`);
+    console.log(`     - 総数: ${metadata.statistics.pullRequests.total}`);
+    console.log(`     - オープン: ${metadata.statistics.pullRequests.open}`);
+    console.log(`     - クローズ: ${metadata.statistics.pullRequests.closed}`);
+    // マージ済みPRは取得対象外
     console.log(`   - ラベル数: ${metadata.statistics.labels}`);
     console.log(`   - 最終更新: ${new Date(metadata.lastUpdated).toLocaleString('ja-JP')}`);
 
@@ -252,7 +362,15 @@ async function fetchAndSaveGitHubData() {
       }
     }
     
-    process.exit(1);
+    // CI環境では確実に失敗として扱う
+    if (process.env['CI'] === 'true') {
+      console.error('💀 CI環境でのデータ取得失敗は致命的エラーです。');
+      console.error('🔧 GitHub Actions設定またはトークン権限を確認してください。');
+      process.exit(1);
+    }
+    
+    console.error('💡 開発環境では処理を継続しますが、アプリケーションにエラーが発生する可能性があります。');
+    console.error('🔧 GitHub_TOKEN、GITHUB_OWNER、GITHUB_REPOの設定を確認してください。');
   }
 }
 

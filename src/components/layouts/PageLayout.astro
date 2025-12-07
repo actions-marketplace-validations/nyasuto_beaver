@@ -9,6 +9,8 @@
 import Header from '../navigation/Header.astro';
 import Footer from '../navigation/Footer.astro';
 import SkipLinks from '../accessibility/SkipLinks.astro';
+import UpdateNotification from '../UpdateNotification.astro';
+import Settings from '../Settings.astro';
 
 // Import global styles
 import '../../styles/global.css';
@@ -195,6 +197,16 @@ const bodyClasses = `min-h-screen flex flex-col antialiased transition-colors du
     {/* Skip Links for accessibility */}
     <SkipLinks />
 
+    {/* Version Update Notification */}
+    <UpdateNotification
+      isVisible={false}
+      autoHide={0}
+      position="top"
+      animation="slide"
+      variant="info"
+      showVersionDetails={true}
+    />
+
     {/* Header */}
     {
       showHeader && (
@@ -217,6 +229,9 @@ const bodyClasses = `min-h-screen flex flex-col antialiased transition-colors du
 
     {/* Footer */}
     {showFooter && <Footer class={footerClass} />}
+
+    {/* Settings Panel */}
+    <Settings isOpen={false} position="right" size="md" modal={true} title="設定" />
 
     {/* Back to top button */}
     <button
@@ -294,6 +309,304 @@ const bodyClasses = `min-h-screen flex flex-col antialiased transition-colors du
           }
         }
       });
+
+      // Initialize user settings, version checker, and PWA system
+      // Wait for DOM to be ready and settings panel to be available
+      function waitForSystemsReady() {
+        // Check if settings panel is available (indicates UI is ready)
+        const settingsPanel = document.querySelector('[data-testid="user-settings"]');
+        if (settingsPanel || document.readyState === 'complete') {
+          initializeUserSystemsIntegration();
+        } else {
+          // Retry every 100ms for up to 10 seconds
+          setTimeout(waitForSystemsReady, 100);
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', waitForSystemsReady);
+      } else {
+        waitForSystemsReady();
+      }
+
+      async function initializeUserSystemsIntegration() {
+        try {
+          // Initialize user settings manager
+          const { createSettingsManager } = await import('../../lib/settings.js');
+          const settingsManager = createSettingsManager();
+
+          // Initialize PWA system if supported
+          try {
+            const { initializePWA } = await import('../../lib/pwa-init.js');
+            const pwaSettings = settingsManager.getPWASettings();
+
+            if (pwaSettings.enabled) {
+              await initializePWA({
+                enabled: true,
+                scope: '/beaver/',
+                versionCheckInterval: settingsManager.getVersionCheckSettings().interval,
+                debug: true, // Force debug mode for polling logs
+                autoRegister: true,
+              });
+              console.log('🚀 PWA System initialized with polling logs enabled');
+            }
+          } catch (error) {
+            console.warn('⚠️ PWA initialization failed:', error);
+          }
+
+          // Initialize browser notification manager
+          const { createBrowserNotificationManager } = await import('../../lib/notifications.js');
+          const settings = settingsManager.getSettings();
+
+          // Safely access browser settings with fallbacks
+          const browserSettings = settings.notifications.browser || {
+            enabled: false,
+            autoRequestPermission: false,
+            onlyWhenHidden: true,
+            maxConcurrent: 3,
+          };
+
+          const browserNotificationManager = createBrowserNotificationManager({
+            enabled: browserSettings.enabled,
+            autoRequestPermission: browserSettings.autoRequestPermission,
+            onlyWhenHidden: browserSettings.onlyWhenHidden,
+            maxConcurrent: browserSettings.maxConcurrent,
+          });
+
+          // Initialize version checker with settings
+          const { createVersionChecker } = await import('../../lib/version-checker.js');
+
+          const versionChecker = createVersionChecker({
+            versionUrl: '/beaver/version.json',
+            enabled: settings.versionCheck.enabled,
+            checkInterval: settings.versionCheck.interval,
+            maxRetries: settings.versionCheck.maxRetries,
+          });
+
+          // Only start version checking if PWA is not handling updates
+          let shouldStartVersionChecker = settings.versionCheck.enabled;
+
+          // Listen for PWA disable signal
+          document.addEventListener('pwa:disable-version-polling', () => {
+            if (shouldStartVersionChecker) {
+              console.log('🔄 PWA active - skipping manual version polling');
+              shouldStartVersionChecker = false;
+              versionChecker.stop();
+            }
+          });
+
+          // Start version checking if enabled and PWA hasn't disabled it
+          if (shouldStartVersionChecker) {
+            versionChecker.start();
+          }
+
+          // Listen for settings changes
+          document.addEventListener('settings:version-check-toggled', (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const { enabled } = customEvent.detail;
+
+            if (enabled) {
+              versionChecker.updateConfig({ enabled: true });
+              versionChecker.start();
+              console.log('🔄 Version checking enabled');
+            } else {
+              versionChecker.stop();
+              versionChecker.updateConfig({ enabled: false });
+              console.log('🔄 Version checking disabled');
+            }
+          });
+
+          // Listen for notification settings changes
+          document.addEventListener('settings:notifications-toggled', (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const { enabled } = customEvent.detail;
+            console.log(`🔔 Notifications ${enabled ? 'enabled' : 'disabled'}`);
+          });
+
+          // Listen for version update events
+          document.addEventListener('version:update-available', (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const notificationSettings = settingsManager.getNotificationSettings();
+
+            if (notificationSettings.enabled) {
+              // Try browser notification first if enabled
+              if (notificationSettings.browser.enabled && browserNotificationManager) {
+                browserNotificationManager
+                  .show({
+                    title: '新しいバージョンが利用可能です',
+                    body: `Beaver Astro Editionの新しいバージョン ${customEvent.detail.latestVersion?.version || ''} が利用可能になりました。`,
+                    icon: '/beaver/favicon.png',
+                    tag: 'version-update',
+                    requireInteraction: false,
+                    autoClose: 10000,
+                    data: {
+                      currentVersion: customEvent.detail.currentVersion,
+                      latestVersion: customEvent.detail.latestVersion,
+                    },
+                  })
+                  .then(result => {
+                    // If browser notification failed, fall back to in-page notification
+                    if (!result.success) {
+                      showInPageNotification(customEvent, notificationSettings);
+                    }
+                  });
+              } else {
+                // Show in-page notification directly
+                showInPageNotification(customEvent, notificationSettings);
+              }
+            }
+          });
+
+          function showInPageNotification(customEvent: CustomEvent, notificationSettings: any) {
+            const updateNotification = document.querySelector(
+              '[data-component="update-notification"]'
+            );
+            if (updateNotification) {
+              const showEvent = new CustomEvent('notification:show', {
+                detail: {
+                  currentVersion: customEvent.detail.currentVersion,
+                  latestVersion: customEvent.detail.latestVersion,
+                  position: notificationSettings.position,
+                  animation: notificationSettings.animation,
+                  showVersionDetails: notificationSettings.showVersionDetails,
+                  autoHide: notificationSettings.autoHide,
+                },
+              });
+              updateNotification.dispatchEvent(showEvent);
+            }
+          }
+
+          // Listen for browser notification fallback events
+          document.addEventListener('browserNotification:fallback', (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const { options, reason } = customEvent.detail;
+
+            console.warn('Browser notification fallback triggered:', reason);
+
+            // If this was a version update notification, show in-page notification
+            if (options.tag === 'version-update' && options.data) {
+              const notificationSettings = settingsManager.getNotificationSettings();
+              const mockEvent = new CustomEvent('version:update-available', {
+                detail: options.data,
+              });
+              showInPageNotification(mockEvent, notificationSettings);
+            }
+          });
+
+          // Handle Page Visibility API for performance optimization
+          if (settings.versionCheck.checkOnlyWhenVisible) {
+            document.addEventListener('visibilitychange', () => {
+              if (document.hidden) {
+                versionChecker.stop();
+              } else if (settings.versionCheck.enabled) {
+                versionChecker.start();
+              }
+            });
+          }
+
+          // Expose controls globally for debugging and external use
+          (window as any).beaverSystems = {
+            settingsManager,
+            versionChecker,
+            browserNotificationManager,
+            openSettings: () => {
+              const settingsEvent = new CustomEvent('settings:open');
+              document.dispatchEvent(settingsEvent);
+            },
+            checkVersion: () => versionChecker.checkVersion(),
+            toggleNotifications: () => settingsManager.toggleNotifications(),
+            toggleVersionCheck: () => settingsManager.toggleVersionCheck(),
+            testBrowserNotification: () =>
+              browserNotificationManager?.show({
+                title: 'Beaver Test Notification',
+                body: 'Browser notification system is working correctly!',
+                icon: '/beaver/favicon.png',
+                tag: 'test',
+                requireInteraction: false,
+                autoClose: 5000,
+              }),
+          };
+
+          console.log('🔄 User systems integration initialized successfully');
+        } catch (error) {
+          console.error('Failed to initialize user systems:', error);
+
+          // Fallback to simple version checking if module loading fails
+          initializeFallbackVersionChecker();
+        }
+      }
+
+      // Fallback version checker for non-PWA browsers
+      function initializeFallbackVersionChecker() {
+        // Check if PWA/Service Worker is available
+        if ('serviceWorker' in navigator) {
+          console.log('🚀 PWA available - using native Service Worker updates');
+          return; // Skip fallback when PWA is available
+        }
+
+        console.log('📱 Non-PWA browser detected - using fallback version checker');
+
+        let currentVersion: any = null;
+        let checkInterval: NodeJS.Timeout | null = null;
+
+        async function checkForUpdates() {
+          try {
+            const baseUrl = window.location.pathname.includes('/beaver')
+              ? window.location.origin + '/beaver'
+              : window.location.origin;
+
+            const response = await fetch(`${baseUrl}/version.json?t=${Date.now()}`);
+            const latestVersion = await response.json();
+
+            if (currentVersion === null) {
+              currentVersion = latestVersion;
+              console.log('🔄 Initial version loaded (fallback):', latestVersion.version);
+              return;
+            }
+
+            // Check if version has changed
+            if (
+              currentVersion.buildId !== latestVersion.buildId ||
+              currentVersion.gitCommit !== latestVersion.gitCommit ||
+              currentVersion.dataHash !== latestVersion.dataHash
+            ) {
+              console.log('🔄 New version detected! (fallback)', {
+                current: currentVersion.version,
+                latest: latestVersion.version,
+              });
+
+              const updateEvent = new CustomEvent('version:update-available', {
+                detail: {
+                  currentVersion: currentVersion,
+                  latestVersion: latestVersion,
+                  updateType: 'manual-check',
+                },
+              });
+              document.dispatchEvent(updateEvent);
+
+              currentVersion = latestVersion;
+            }
+          } catch (error) {
+            console.warn('Version check failed (fallback):', error);
+          }
+        }
+
+        checkForUpdates();
+        checkInterval = setInterval(checkForUpdates, 30000);
+
+        (window as any).autoReloadControl = {
+          checkNow: checkForUpdates,
+          stop: () => {
+            if (checkInterval) {
+              clearInterval(checkInterval);
+              checkInterval = null;
+            }
+          },
+          getCurrentVersion: () => currentVersion,
+        };
+
+        console.log('🔄 Fallback version checker initialized for non-PWA browser');
+      }
     </script>
   </body>
 </html>
